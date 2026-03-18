@@ -24,6 +24,5 @@ class ResourceEstimator:
         Determine cycles to run (runtime), space on chip (magic factory + errorcorrection + algo), 
     """
     def analyzeCircuit(self):
-        #Run
-
-    #TODO: function to go through and analyze the total resource cost of running the circuit with the given factories (may be multiple functions)
+        #TODO: function to go through and analyze the total resource cost of running the circuit with the given factories (may be multiple functions)
+        return
