@@ -15,7 +15,7 @@ class ResourceEstimator:
 
     #TODO: function to decompose circuit into clifford + whatever magic state is made by the factories
     def decomposeToCliffordPlusMagic(self):
-        # Return an error if magicFactories or quantumCircuit is null.
+        # Raise an error if magicFactories or quantumCircuit is null.
         if self.magicFactories == None:
             raise ValueError("ResourceEstimator.magicFactories should not be null.")
         if self.quantumCircuit == None:
