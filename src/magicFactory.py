@@ -71,7 +71,7 @@ class MagicFactory:
         
         qubitFootprint = (4*d) * (8*d)
         numCycles = 6.5*d  #I got this eq from the paper this factory is from under section X. Distillation
-        outErrorRate = 35 * p_in**3 #assuming that the input of the factory is 
+        outErrorRate = 35 * p_in**3 #assuming that the input of the factory is p_in TODO: this is probably distillation limited and doesnt relate to surface code size
 
         return cls(
             gate = QuantumGate.T,
@@ -111,12 +111,26 @@ class MagicFactory:
     
     """
         Catalyzed |CCZ> -> 2|T> factory based on paper 'Efficient magic state factories with a catalyzed |CCZ> -> 2|T> transformation'
+        It takes in 15|T>, converts those to |CCZ>, then converts that to 2|T>
     """
     @classmethod
-    def catalyzed_CCZ_to_2T_factory(cls, CCZ_Factory, d_T):
-        #TODO: implement factory
-        return
+    def catalyzed_CCZ_to_2T_factory(cls, CCZ_Factory: MagicFactory, d_T:int):
+        distillationTime = 6.5 * d_T   #I got this from the figure in the paper, but it may assume no bottleneck in the L1 T or CCZ factories
+        qubitFootprint = CCZ_Factory.qubitFootprint + (4*d_T)**2
+        outErrorRate = CCZ_Factory.outErrorRate #I think the T states produced have the same error rate as the CCZ states of the CCZ factory (TODO: figure out how this relates to code distance of the factory)
+        
+        return cls(
+            gate = QuantumGate.T,
+            inputStateCnt = 15,
+            outputStateCnt = 2,
+            outErrorRate = outErrorRate,
+            distillationTime = distillationTime,
+            qubitFootprint = qubitFootprint
+        )
     
+    """
+        Factory to produce sqrt T gates.
+    """
     @classmethod
     def sqrtT_factory(cls):
         #TODO: implement factory

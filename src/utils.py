@@ -10,6 +10,7 @@ class QuantumGate(Enum):
     Z = "Z"
     H = "H"
     CX = "CX"
+    S = "S"
 
     # NON CLIFFORD
     T = "T"
@@ -20,7 +21,7 @@ class QuantumGate(Enum):
 
     @property
     def is_clifford(self) -> bool:
-        return self in {QuantumGate.X, QuantumGate.Y, QuantumGate.Z, QuantumGate.H, QuantumGate.CX}
+        return self in {QuantumGate.X, QuantumGate.Y, QuantumGate.Z, QuantumGate.H, QuantumGate.CX, QuantumGate.S}
 
 """
     Calculates the logical error rate of a surface code based on a physical error rate p_phys and a code distance d
