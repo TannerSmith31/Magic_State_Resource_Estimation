@@ -1,5 +1,6 @@
+from __future__ import annotations  #This allows me to type-hint something as a MagicFactory in a param to a function in the class definition.
 import math
-from utils import calcLER, calcProbErr_X_Z, QuantumGate
+from src.utils import calcLER, calcProbErr_X_Z, QuantumGate
 
 class MagicFactory:
     gate:str            #gate being distilled (T, CCZ, ...)
@@ -136,9 +137,16 @@ class MagicFactory:
         #TODO: implement factory
         return
     
+
+    """
+        Factory based on the technique used in "Even more efficient magic state distillation by zero-level distillation" (2024)
+    """
     @classmethod
-    def synthillation_factory(cls):
+    def zeroLevelDistillation_factory(cls):
         #TODO: implement factory
+
+
+        #errorRate = 100 *(p)^2   #this was given in the paper
         return
     
 

@@ -1,15 +1,15 @@
 from qiskit import QuantumCircuit
 from qiskit_aer import AerSimulator
 from qiskit.visualization import plot_histogram
-from utils import QuantumGate
+from src.utils import QuantumGate
 
 class circuitDecomposer:
-    gateSet: list[QuantumGate]              #List of gates that we will decompose the arbitrary circuit into
+    gateSet: list[QuantumGate]        #List of gates that we will decompose the arbitrary circuit into
     decompositionError: float         #tolerable error for each gate when decomposing a circuit
     originalCircuit: QuantumCircuit   #the original non-decomposed circuit comprised of arbitrary gates
     decomposedCircuit: QuantumCircuit #the decomposed circuit comprised of only gates in our gateSet
 
-    def __init__(self, gateSet, decompositionError, originalCircuit):
+    def __init__(self, gateSet:list[QuantumGate], decompositionError:float, originalCircuit:QuantumCircuit):
         self.gateSet = gateSet
         self.decompositionError = decompositionError
         self.originalCircuit = originalCircuit
