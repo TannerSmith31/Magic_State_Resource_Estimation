@@ -47,9 +47,16 @@ class ResourceEstimator:
             raise ValueError("ResourceEstimator.magicFactories should not be null.")
         if qc == None:
             raise ValueError("ResourceEstimator.quantumCircuit should not be null.")
+        
+        #TODO: Look at the list of magic factories and decompose the circuit into the available gates.
+        gates = []
+        for factory in self.magicFactories:
+            gates.append(factory.gate)
+        for gate in QuantumGate:
+            if gate.is_clifford:
+                gates.append(gate)
 
-        # create a decomposer for our gateset and decompose the circuit
-        decomposer = CircuitDecomposer(self.basisGateset, decompPrecision, qc)
+        decomposer = CircuitDecomposer(gates, errorRate, self.quantumCircuit)
         decomposedCircuit = decomposer.decomposeToGateset()
         return decomposedCircuit
     
