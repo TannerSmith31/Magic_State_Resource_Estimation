@@ -3,7 +3,6 @@ import math
 from src.utils import calcLER, calcProbErr_X_Z, QuantumGate
 
 class MagicFactory:
-    gates: list[QuantumGate]                #gate(s) being distilled (T, CCZ, ...)
     inStateCnts: dict[QuantumGate,int]      #number of each type of state input into the factor to be distilled
     outStateCnts: dict[QuantumGate,int]     #number of each type of magic state output by the factory
     outErrorRates: dict[QuantumGate,float]   #error rate of the magic states produced by the factory
@@ -13,9 +12,12 @@ class MagicFactory:
     codeDistance:int                        #code distance used to implement this factory
     subFactories: list[MagicFactory]|None   #Subfactories used within this magic factory (e.g. CCZ factory uses multiple T factories to create magic state)
 
-    def __init__(self, gates:list[QuantumGate], inStateCnts:dict[QuantumGate,int], outStateCnts:dict[QuantumGate,int], outErrorRates:dict[QuantumGate,float], 
+    def __init__(self, inStateCnts:dict[QuantumGate,int], outStateCnts:dict[QuantumGate,int], outErrorRates:dict[QuantumGate,float], 
                  distillationCycles:float, distillationTime:float, qubitFootprint:int, codeDistance:int, subFactories:list[MagicFactory]|None = None):
-        self.gates = gates
+        
+        if (len(outStateCnts) != len(outErrorRates)):
+            raise ValueError(f"The length of outStateCnts ({len(outStateCnts)}) doesn't match the length of outErrorRates ({len(outErrorRates)}). Ensure you have provided error rates for all output states.")
+        
         self.inStateCnts = inStateCnts
         self.outStateCnts = outStateCnts
         self.outErrorRates = outErrorRates
@@ -24,6 +26,13 @@ class MagicFactory:
         self.qubitFootprint = qubitFootprint
         self.codeDistance = codeDistance
         self.subFactories = subFactories
+
+    """Get a list of the magic states produced by this factory"""
+    def getMagicStates(self):
+        magicStates = []
+        for state in self.outStateCnts: #iterate through the keys of the outState cnt dictionary.
+            magicStates.append(state)
+        return magicStates
 
 
     """
@@ -60,8 +69,7 @@ class MagicFactory:
         distillationTime = distillationCycles * max(d_x,d_z)  #This gets us the number of stabelizer measurements
 
         return cls(
-            gates = [QuantumGate.T],  
-            inStateCnts = {QuantumGate.H:15}, #TODO: figure out a way to change this. Its technically the |+> state that goes in
+            inStateCnts = {QuantumGate.H:5}, #TODO: figure out a way to change this. Its technically the |+> state that goes in
             outStateCnts = {QuantumGate.T:1},
             outErrorRates = {QuantumGate.T:outErrorRate},
             distillationCycles = distillationCycles,
@@ -86,7 +94,6 @@ class MagicFactory:
         outErrorRate = 35 * p_in**3 #assuming that the input of the factory is p_in TODO: this is probably distillation limited and doesnt relate to surface code size
 
         return cls(
-            gates = [QuantumGate.T],
             inStateCnts = {QuantumGate.H:15},
             outStateCnts = {QuantumGate.T:1},
             qubitFootprint = qubitFootprint,
@@ -105,18 +112,17 @@ class MagicFactory:
     @classmethod
     def CCZ_factory(cls, T_Factory: MagicFactory, d_CCZ: int) -> MagicFactory:
         
-        if T_Factory.gates != [QuantumGate.T]:  #CCZ factory works by using T gates distilled from T factories  PTODO:could update this to accept factories that produce |T> and other gates and just do calculations based on the |T> states
-            raise ValueError(f'CCZ_factory param T_Factory must be a T gate factory but was a {T_Factory.gates} gate factory')
+        if T_Factory.getMagicStates() != [QuantumGate.T]:  #CCZ factory works by using T gates distilled from T factories  PTODO:could update this to accept factories that produce |T> and other gates and just do calculations based on the |T> states
+            raise ValueError(f'CCZ_factory param T_Factory must be a T gate factory but was a {T_Factory.getMagicStates()} gate factory')
         CCZ_NaiveDistCycleCnt = 4 + (T_Factory.codeDistance/d_CCZ)*3 + 1 + 2 #based on paper [4 stabelizer meas + Tdist/CCZdist*3 T injection + 1 X or Y basis meas + 2 detect err]
         CCZ_distillationCycles = (4 + (T_Factory.codeDistance/d_CCZ)*3) #we pipeline the factory by starting the production of the next CCZ state after finishing the T injection of the prior CCZ state so when running for a long time it only takes the time to do the injection and measurements.
         CCZ_distillationTime = CCZ_distillationCycles * d_CCZ
         numT1Factories = math.ceil((8*T_Factory.distillationTime)/CCZ_distillationTime) #we need enough T1 factories to produce 8|T> states in the time it takes to make one CCZ state (5.5d_CCZ cycles)
         T1FactoryFootprint = T_Factory.qubitFootprint #The size of a level 1 T gate factory
-        CCZFactoryFootprint = 3*6*d_CCZ #The size of just the CCZ distillation part of the CCZ factory
+        CCZFactoryFootprint = 3*6*d_CCZ**2 #The size of just the CCZ distillation part of the CCZ factory
         qubitFootprint = numT1Factories*T1FactoryFootprint + CCZFactoryFootprint #Total space of CCZ distillation (1 CCZdistillation fed by numT1Factories Tgate factories)
         outErrorRate = 28* (T_Factory.outErrorRates[QuantumGate.T])**2  #TODO: this is the out error rate if it is distillation limited (i.e. the code distance of the T and CCZ factories is high enough that it isn't the source of most error. However, it is possible that with low code distances, it does not get this good) Fix this to adjust error rate based on if the code distance is the bottleneck or if the distillation is the bottle neck.
         return cls(
-            gates = [QuantumGate.CCZ],
             inStateCnts = {QuantumGate.H:15*numT1Factories}, #NOTE: just the CCZ portion takes in 8 |T> states but these take T factories to produce
             outStateCnts = {QuantumGate.CCZ:1},
             outErrorRates = {QuantumGate.CCZ:outErrorRate},
@@ -139,7 +145,6 @@ class MagicFactory:
         outErrorRate = CCZ_factory.outErrorRates[QuantumGate.CCZ] #I think the T states produced have the same error rate as the CCZ states of the CCZ factory (TODO: figure out how this relates to code distance of the factory)
         
         return cls(
-            gates = [QuantumGate.T],
             inStateCnts = CCZ_factory.inStateCnts,
             outStateCnts = {QuantumGate.T:2},
             outErrorRates = {QuantumGate.T:outErrorRate},
@@ -162,7 +167,6 @@ class MagicFactory:
         distillationCycles = T_Factory.distillationCycles #same reasoning as distillationTime
         #Somehow account for the time to distill the first catalyst state (depends on if you just use synthelization (many T gates) or magically distill it (look at other paper for this. will need to add it as a factory)
         return cls(
-            gates = [QuantumGate.sqrtT],
             inStateCnts = {gate: count*numTFactories for gate,count in T_Factory.inStateCnts.items()}, #this is ignoring the 2 input |+> states that will turn into sqrt T states because we can directly feed in the qubits we want to apply the sqrt T gate to
             outStateCnts = {QuantumGate.sqrtT:2},
             outErrorRates = {QuantumGate.sqrtT:T_Factory.outErrorRates[QuantumGate.T]}, #TODO: this will be likely be worse than the input state. additionally the fidelity becomes worse as we run it (O(n)) until the catalyst is poisoned
@@ -192,7 +196,7 @@ class MagicFactory:
             raise ValueError(f"k value should be greater than 2 for catalyzed Rz Factory since k=1->S factory. Got k={k}")
         if k > 7:
             raise ValueError(f"currently the catalyzed RZ factory doesnt accept k values greater than 7. Got k={k}") #TODO: sometime fix this
-        if QuantumGate.T not in T_Factory.gates:
+        if QuantumGate.T not in T_Factory.getMagicStates():
             raise ValueError(f"T_Factory param must produce T gates")
         MfactoryFootprint = 3*d**2 #the M factories use 3 qubits each encoded at distance d^2
         numMfactories = k-2  #we dont include k=1 since that would be an S factory. Also dont include k=2 which is a T factory since we will use a normal T factory for that. the first M factory is a sqrt(T) factory (M_2) and so on for each k increase
@@ -219,7 +223,6 @@ class MagicFactory:
 
 
         return cls(
-            gates = outStates,
             inStateCnts = {gate: count * numTFactories for gate,count in T_Factory.inStateCnts.items()},
             outStateCnts = outStateCnts,
             outErrorRates = outErrorRates,

@@ -3,7 +3,9 @@ from qiskit_aer.noise import NoiseModel, pauli_error
 from qiskit.converters import circuit_to_dag
 from qiskit.dagcircuit import DAGOpNode
 from qiskit_aer import AerSimulator
+from qiskit.circuit.library import RZGate
 import itertools
+import numpy as np
 
 from src.circuitDecomposer import CircuitDecomposer
 from src.utils import QuantumGate
@@ -25,7 +27,7 @@ class ResourceEstimator:
         # Look at the list of magic factories to get the magic basis
         if not magicFactories:
             raise ValueError("must pass a list of magic factories when creating a ResourceEstimator")
-        magicGateset = {gate for factory in self.magicFactories for gate in factory.gates} #create a set of gates from the magic factory
+        magicGateset = {gate for factory in self.magicFactories for gate in factory.getMagicStates()} #create a set of gates from the magic factory
         basisGateset = list(magicGateset) #convert the magic gateset to a list and assign those gates into the basis gateset, then iterate through the nonclifford gates and add them
         
         #add clifford gates to the basis gateset
@@ -41,7 +43,7 @@ class ResourceEstimator:
         Function to decompose circuit into Clifford + whatever magic state is made by the factories
             decompPrecision: How close we want each gate to be to the target unitary (TODO: determine if this should be per gate, or full circuit decomp precision [i.e. we want the full circuit, when treated as a unitary, to be within the precision of the original])
     """
-    def decomposeToCliffordPlusMagic(self, qc:QuantumCircuit, decompPrecision:float):
+    def decomposeToCliffordPlusMagic(self, qc:QuantumCircuit, decompPrecision:float) -> QuantumCircuit:
         # Raise an error if magicFactories or quantumCircuit is null.
         if self.magicFactories == None:
             raise ValueError("ResourceEstimator.magicFactories should not be null.")
@@ -55,16 +57,18 @@ class ResourceEstimator:
     """
         calculates the total number of physical qubits needed to run the algorithm (factories + algorithm)
     """
-    def calcFootprint(self):
+    def calcFootprint(self, qc:QuantumCircuit|None) -> int:
         # Calculate the total area of factories
         magicFactoryFootprint = 0 #initialize a counter for the qubits required for all factories
         for mFactory in self.magicFactories:
             magicFactoryFootprint += mFactory.qubitFootprint
         
-        #Calculate the physical qubits required for the algorithm based on code distance
-        logicalQubits = self.quantumCircuit.num_qubits()            #each qubit in the algorithm is a logical qubit
-        logicalQubitFootprint = 2 * self.codeDistance**2 - 1    #surface codes are a [2d^2-1, 1, d] code so it takes 2d^2-1 physical qubits to implement 1 logical qubit
-        circuitFootprint = logicalQubits * logicalQubitFootprint
+        #Calculate the physical qubits required for the algorithm based on code distance. If no circuit passed, set it equal to 0
+        circuitFootprint = 0
+        if qc is not None:
+            logicalQubits = qc.num_qubits            #each qubit in the algorithm is a logical qubit
+            logicalQubitFootprint = 2 * self.codeDistance**2 - 1    #surface codes are a [2d^2-1, 1, d] code so it takes 2d^2-1 physical qubits to implement 1 logical qubit
+            circuitFootprint = logicalQubits * logicalQubitFootprint
 
         #TODO: account for routing / lattice surgery? or ignore routing? maybe give a flat 10% for routing or something?
 
@@ -76,12 +80,31 @@ class ResourceEstimator:
     """
     def calcRuntime(self, qc:QuantumCircuit) -> float:
         # create a dictionary to keep track of the totoal number of each type of magic gate in the circuit
-        magicGateCounts = {gate.value: 0 for gate in self.magicGateset}
+        magicGateCounts = {gate: 0 for gate in self.magicGateset}
         
         for instruction in qc.data:
             gateName = instruction.operation.name
-            if gateName in magicGateCounts:
-                magicGateCounts[gateName] += 1
+
+            try:
+                gate_enum = QuantumGate(gateName)   # Convert string to QuantumGate object ('t' -> QuantumGate.T_GATE)
+                if gate_enum in magicGateCounts:
+                    magicGateCounts[gate_enum] += 1
+            except ValueError:
+                # This runs if gateName is not defined in your QuantumGate Enum
+                # rz rotations are not defined in the enum so here is where we deal with them
+                if gateName == "rz":
+                    #the rzAngle below has some extra math stuff to ensure that we catch angles over 2pi that are equivalent to those under
+                    #and any negative angle being represented by a large positive angle just under 2pi (like -pi/8 being +15pi/8)
+                    rzAngle = (instruction.operation.params[0] + np.pi) % (2 * np.pi) - np.pi 
+                    for gate_enum in magicGateCounts.keys():
+                        try:
+                            magicGateAngle = gate_enum.getAngle 
+                            magicGateDaggerAngle = gate_enum.getDaggerAngle
+                            if np.isclose(rzAngle, magicGateAngle) or np.isclose(rzAngle,magicGateDaggerAngle):
+                                magicGateCounts[gate_enum] += 1
+                        except (ValueError, AttributeError, TypeError):
+                            pass #we get a value error if we try to call getAngle on an unsupported gates
+                                 #some magic gates are unsupported, but all the rz ones are supported
 
         #create a dictionary to keep track of the depth of each magic gate in the circuit
         magicGateDepths = self.getMagicDepths(qc)
@@ -89,7 +112,7 @@ class ResourceEstimator:
         #calculate the production rate of each of the magic states
         magicStateProductionRates = {gate: 0 for gate in self.magicGateset} #this will be in AlgoCycles/Tgate  (NOTE: algoCycles are cycles based on the code distance of the algo)
         for magicFactory in self.magicFactories:
-            for magicOutState in magicFactory.gates: #go through all the produced states
+            for magicOutState in magicFactory.getMagicStates(): #go through all the produced states
                 #take the factories outStateCnt and divide it by how many operations occur
                 #This will be the number of states output per operation (ill call a 'unit of time') and then multiply that by the number of units of time occur in one code cycle of the algorithm
                 factoryOutputRate = (magicFactory.outStateCnts[magicOutState]/magicFactory.distillationTime)*self.codeDistance
@@ -133,8 +156,15 @@ class ResourceEstimator:
                     nodeMagicDepths[node][magicGate] = max(nodeMagicDepths[p][magicGate] for p in predNodeList)
 
                 #if the current node is the magic gate we are counting, we add one to its depth
-                if isinstance(node, DAGOpNode) and node.op.name == magicGate.value:
-                    nodeMagicDepths[node][magicGate] += 1
+                if isinstance(node, DAGOpNode):
+                    if node.op.name == magicGate.value:
+                        nodeMagicDepths[node][magicGate] += 1
+                    elif magicGate == QuantumGate.T and node.op.name == "tdg":  #have to check for tdaggar seperately
+                        nodeMagicDepths[node][magicGate] += 1
+                    elif isinstance(node.op, RZGate):
+                        angle = float(node.op.params[0])
+                        if np.isclose(angle, magicGate.getAngle) or np.isclose(angle, magicGate.getDaggerAngle):
+                            nodeMagicDepths[node][magicGate] += 1
                 
                 #check if the depth for the current node & gate is greater than the max seen for this magic gate
                 if nodeMagicDepths[node][magicGate] > maxMagicDepths[magicGate]:
@@ -174,15 +204,20 @@ class ResourceEstimator:
                 #skip if gateName is a magic gate (or a barrier)
                 if gateName in magicGateNames or gateName == 'barrier':
                     continue
-
-                inst = qc.find_instruction(gateName)[0].operation
-
-                if inst.num_qubits == 1:
-                    nonMagicGates1q.append(gateName)
-                elif inst.num_qubits == 2:
-                    nonMagicGates2q.append(gateName)
-                else:
-                    print(f"WARNING: found a gate in the circuit with more than 3 qubits: {gateName}. Noise not automatically applied")
+                
+                try:
+                    first_inst = next(inst.operation for inst in qc.data if inst.operation.name == gateName)
+                    numQbits = first_inst.num_qubits
+                    if numQbits == 1:
+                        nonMagicGates1q.append(gateName)
+                    elif numQbits == 2:
+                        nonMagicGates2q.append(gateName)
+                    else:
+                        print(f"WARNING: found a gate in the circuit with more than 3 qubits: {gateName}. Noise not automatically applied")
+                except StopIteration:
+                    #this only happens if count_ops() finds a gate that isn't in qc.data which is unlikely
+                    print("WARNING in runCircuit: count_ops() found a gate not in qc.data")
+                    pass
 
             
             err_1q = pauli_error([('X', p_L/3), ('Y', p_L/3), ('Z', p_L/3), ('I', 1-p_L)])
@@ -204,7 +239,7 @@ class ResourceEstimator:
             fidelityRatioSum = 0 #numerator
             productionRateSum = 0 #denominator
             for magicFactory in self.magicFactories:
-                for outMagicGate in magicFactory.gates:
+                for outMagicGate in magicFactory.getMagicStates():
                     if outMagicGate == gate:
                         #get the magic states produced per unit of time by taking the number of states output and dividing it by the distillation time
                         curFactoryProductionRate = magicFactory.outStateCnts[gate]/magicFactory.distillationTime
@@ -222,7 +257,7 @@ class ResourceEstimator:
         ### USING NOISE MODEL TO RUN CIRCUIT ###
         simulator = AerSimulator(noise_model = noiseModel) #set noise model into simulator backend
         job = simulator.run(qc, shots=shots)
-        results = job.results()
+        results = job.result()
         counts = results.get_counts()
 
         return counts

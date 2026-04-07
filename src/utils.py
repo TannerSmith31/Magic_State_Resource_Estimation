@@ -22,7 +22,6 @@ class QuantumGate(Enum):
     rootT_8 = "8rootT"
     rootT_16 = "16rootT"
     rootT_32 = "32rootT"
-    R_z = "Rz"
     PHASE = "p"
     Tdiv2 = "T/2"
     Tdg = "Tdagger"
@@ -35,6 +34,33 @@ class QuantumGate(Enum):
     def is_2x2(self) -> bool:
         return self in {QuantumGate.X, QuantumGate.Y, QuantumGate.Z, QuantumGate.H, QuantumGate.S, QuantumGate.T, QuantumGate.sqrtT, QuantumGate.R_z, QuantumGate.Tdiv2}
 
+    @property
+    def getAngle(self) -> float:
+        if self in {QuantumGate.X, QuantumGate.Y, QuantumGate.Z}:
+            return np.pi
+        if self == QuantumGate.T:
+            return np.pi/4
+        elif self == QuantumGate.sqrtT:
+            return np.pi/8
+        elif self == QuantumGate.rootT_4:
+            return np.pi/16
+        elif self == QuantumGate.rootT_8:
+            return np.pi/32
+        elif self == QuantumGate.rootT_16:
+            return np.pi/64
+        elif self == QuantumGate.rootT_32:
+            return np.pi/128
+        else:
+            raise ValueError(f"getAngle is not defined for {self.name} gate")
+        
+    @property
+    def getDaggerAngle(self) -> float:
+        try:
+            return -self.getAngle
+        except ValueError:
+            raise ValueError(f"getDaggarAngle is not defined for {self.name} gate")
+        
+        
 """
     Calculates the logical error rate of a surface code based on a physical error rate p_phys and a code distance d
     The equation used is based on the one presented in sec 2 of the paper 'Magic State Distillation: Not as Costly as you Think'
