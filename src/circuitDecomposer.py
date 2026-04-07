@@ -1,7 +1,7 @@
-import math
 from qiskit import QuantumCircuit
 from qiskit.circuit import CircuitInstruction
 from qiskit.circuit.library.standard_gates import get_standard_gate_name_mapping
+from qiskit.circuit.library import RXGate, RYGate
 from qiskit.quantum_info import Operator, Pauli
 from qiskit_aer import AerSimulator
 from qiskit.visualization import plot_histogram
@@ -12,6 +12,12 @@ import numpy as np
 from scipy.linalg import sqrtm
 from scipy.stats import unitary_group
 from scipy.spatial.transform import Rotation
+from qiskit.synthesis import OneQubitEulerDecomposer
+#from tensorflow_graphics.geometry.transformation.axis_angle import from_euler
+import quaternionic
+from math import cos, sqrt, inf, sin
+from sympy import pprint, solveset, Symbol
+import sympy
 
 from src.utils import QuantumGate, dagger, operatorNorm
 
@@ -64,7 +70,7 @@ class CircuitDecomposer:
 	def basicApproximation(self, U):
 		names = get_standard_gate_name_mapping()
 		currentOption = None
-		minOperatorNorm = math.inf
+		minOperatorNorm = inf
 		for option in self.options:
 			currMatrix = np.identity(2)
 			for gate in option:
@@ -80,21 +86,30 @@ class CircuitDecomposer:
 	
 	def gcDecompose(self, inputMatrix):
 		done = False
-		biggerMatrix = [
-			[inputMatrix[0][0], inputMatrix[0][1], 0],
-			[inputMatrix[1][0], inputMatrix[1][1], 0],
-			[0, 0, 1]]
-		theta = Rotation.from_matrix(biggerMatrix).as_euler('zyx')[0]
-		cgc = 1/math.sqrt(2)
-		bound = cgc * math.sqrt(self.decompositionError)
+		cgc = 1/sqrt(2)
+		bound = cgc * sqrt(self.decompositionError)
 		identity = np.identity(2)
 		v = None
 		w = None
+		euler = OneQubitEulerDecomposer().angles(unitary=inputMatrix)
+		quat = quaternionic.array.from_euler_angles(euler)
+		axis = quat.to_axis_angle
+		theta = np.linalg.norm(axis)
+		leftSide = sin(theta / 2)
+		# 0 = (1 - cos(phi)) * sqrt(1 - (1/8) * (3 - 4 * cos(phi) + cos(2 * phi))) - leftSide
+		x = Symbol('x')
+		phis = solveset((1 - sympy.cos(x)) * sympy.sqrt(1 - (1/8) * (3 - 4 * sympy.cos(x) + sympy.cos(2 * x))) - leftSide, x, sympy.Reals)
+		pprint(phis)
+		n = 0
+		iterable = iter(phis)
 		while not done:
-			v = unitary_group.rvs(2)
-			w = unitary_group.rvs(2)
+			phi = next(iterable)
+			v = RXGate(float(phi)).to_matrix()
+			w = RYGate(float(phi)).to_matrix()
+			print(operatorNorm(identity, v), bound)
 			if operatorNorm(identity, v) < bound:
 				done = True
+			n += 1
 		return v, w
 
 	# function Solovay-Kitaev(Gate U , depth n)
@@ -116,7 +131,7 @@ class CircuitDecomposer:
 			# Set Wn−1 = Solovay-Kitaev(W ,n − 1)
 			WNMinusOne = self.solovayKitaev(W, n - 1)
 			# Return Un = Vn−1Wn−1V †  n−1W †  n−1Un−1;
-			return np.dot(np.dot(np.dot(np.dot(VNMinusOne, WNMinusOne), dagger(VNMinusOne)), dagger(WNMinusOne)), UNMinusOne)
+			return np.matmul(np.matmul(np.matmul(np.matmul(VNMinusOne, WNMinusOne), dagger(VNMinusOne)), dagger(WNMinusOne)), UNMinusOne)
 	
 	def decomposeToCliffordPlusT(self):
 		mpmath.mp.dps = 128
