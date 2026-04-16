@@ -51,7 +51,7 @@ class CircuitDecomposer:
 			for gate in option:
 				gateMatrix = names[gate.name.lower()].to_matrix()
 				currMatrix = np.matmul(currMatrix, gateMatrix)
-		self.matrixOptions.append(currMatrix)
+				self.matrixOptions.append([currMatrix, option])
 		# Use numpy matrices.
 		#if 'T' in self.gateSet:
 			#return self.decomposeToCliffordPlusT()
@@ -61,7 +61,7 @@ class CircuitDecomposer:
 			#Check if the instruction is already in self.gateSet first.
 
 			U = inst.matrix
-			n = 7
+			n = 5
 			self.epsilon[0] = 0.14
 			for i in range(1, n + 1):
 				#self.epsilon[i] = self.cApprox * self.epsilon[i - 1] ** (3/2)
@@ -79,7 +79,7 @@ class CircuitDecomposer:
 			for combination in currCombinations:
 				newCombinations.append(combination)
 				for gate in self.gateSet2x2:
-					newCombination = combination
+					newCombination = list(combination)
 					newCombination.append(gate)
 					newCombinations.append(newCombination)
 			return self.basicApproximationHelper(numGates - 1, newCombinations)
@@ -90,12 +90,13 @@ class CircuitDecomposer:
 		minOperatorNorm = inf
 		for option in self.matrixOptions:
 			
-			optionOperatorNorm = operatorNorm(U, option)
-			if optionOperatorNorm < minOperatorNorm:
+			optionOperatorNorm = operatorNorm(U, option[0])
+			if abs(optionOperatorNorm) < abs(minOperatorNorm):
 				minOperatorNorm = optionOperatorNorm
 				currentOption = option
-			
-		return currentOption
+
+		#self.decomposedCircuit.append(currentOption[1])
+		return currentOption[0]
 	
 	def gcDecompose(self, inputMatrix, n):
 		done = False
@@ -137,7 +138,7 @@ class CircuitDecomposer:
 			v = RXGate(float(phi)).to_matrix()
 			w = RYGate(float(phi)).to_matrix()
 			#print(operatorNorm(identity, v), sqrt(self.epsilon[n]/2))
-			if operatorNorm(identity, v) < sqrt(self.epsilon[n]/2):
+			if abs(operatorNorm(identity, v)) < sqrt(self.epsilon[n]/2):
 				done = True
 		return v, w
 
@@ -152,16 +153,13 @@ class CircuitDecomposer:
 		# else
 		else:
 			# Set Un−1 = Solovay-Kitaev(U, n − 1)
-			print('a')
 			UNMinusOne = self.solovayKitaev(U, n - 1)
 			# Set V , W = GC-Decompose(U U^†_{n − 1})
 			print(np.matmul(U, dagger(UNMinusOne)))
 			V, W = self.gcDecompose(np.matmul(U, dagger(UNMinusOne)), n)
 			# Set Vn−1 = Solovay-Kitaev(V ,n − 1)
-			print('b')
 			VNMinusOne = self.solovayKitaev(V, n - 1)
 			# Set Wn−1 = Solovay-Kitaev(W ,n − 1)
-			print('c')
 			WNMinusOne = self.solovayKitaev(W, n - 1)
 			# Return Un = Vn−1Wn−1V †  n−1W †  n−1Un−1;
 			print('SK: ', n, operatorNorm(U, np.matmul(np.matmul(np.matmul(np.matmul(VNMinusOne, WNMinusOne), dagger(VNMinusOne)), dagger(WNMinusOne)), UNMinusOne)))
